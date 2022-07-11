@@ -12,51 +12,83 @@
 #' Library dependencies: tidyverse, lubridate, data.table
 
 
-ag_feature_calc = function(ag_data_raw_wrist, participant, samp_freq = 80, window = 15, long_axis = 'y', angle_comp ='Default_Staudenmayer',
-                           soj_colname = NA, seconds_colname = NA, inactive_threshold = .00375){
+ag_feature_calc <- function(ag_data_raw_wrist,
+                            participant,
+                            samp_freq          = 80,
+                            window             = 15,
+                            long_axis          = "y",
+                            angle_comp         = "Default_Staudenmayer",
+                            soj_colname        = NA,
+                            seconds_colname    = NA,
+                            inactive_threshold = .00375) {
 
-  if("data.table" %in% (.packages())){
-    detach(package:data.table, unload = TRUE, force = T) # causes issues with referencing column indices with a non-numeric character element
+  if ("data.table" %in% (.packages())) {
+
+    # Causes issues with referencing column indices with a non-numeric character element.
+    detach(package:data.table, unload = TRUE, force = TRUE)
+
   }
 
-  n <- dim(ag_data_raw_wrist)[1]
+  n <-
+    dim(ag_data_raw_wrist)[1]
 
   # Assumes that the Timestamp column is first
-  long_axis_index = switch(long_axis,
-                           'x' = str_which(colnames(ag_data_raw_wrist), 'AxisX'),
-                           'y' = str_which(colnames(ag_data_raw_wrist), 'AxisY'),
-                           'z' = str_which(colnames(ag_data_raw_wrist), 'AxisZ'))
+  long_axis_index <-
+    switch(
+      EXPR = long_axis,
+      "x" = str_which(colnames(ag_data_raw_wrist), "AxisX"),
+      "y" = str_which(colnames(ag_data_raw_wrist), "AxisY"),
+      "z" = str_which(colnames(ag_data_raw_wrist), "AxisZ")
+    )
 
+  switch(
+    EXPR = angle_comp,
+    "Rowlands" = {
+      ag_data_raw_wrist$v.ang <-
+        (90 * asin(ag_data_raw_wrist[, long_axis_index] / ag_data_raw_wrist$VM)) / (pi / 2)
+      ag_data_raw_wrist$SedSphere_v.ang <-
+        ifelse(
+          ag_data_raw_wrist[, long_axis_index] > 1,
+          yes = asin(1) * 180 / pi,
+          no  = ifelse(ag_data_raw_wrist[, long_axis_index] < -1,
+                       yes = asin(-1) * 180 / pi,
+                       no  = asin(pmin(pmax(ag_data_raw_wrist[, long_axis_index], -1.0), 1.0)) * 180 / pi
+        )
+      )
+    },
+    "Default_Staudenmayer" = {
+      ag_data_raw_wrist$v.ang <-
+        (90 * asin(ag_data_raw_wrist[, long_axis_index] / ag_data_raw_wrist$VM)) / (pi / 2)
+    }
+  )
 
-  switch(angle_comp,
-         'Rowlands' = {
-           ag_data_raw_wrist$v.ang <- (90*asin(ag_data_raw_wrist[,long_axis_index]/ag_data_raw_wrist$VM))/(pi/2)
-           ag_data_raw_wrist$SedSphere_v.ang <- ifelse(ag_data_raw_wrist[,long_axis_index] > 1, asin(1)*180/pi,
-                                                       ifelse(ag_data_raw_wrist[,long_axis_index] < -1, asin(-1)*180/pi,
-                                                              asin(pmin(pmax(ag_data_raw_wrist[,long_axis_index],-1.0),1.0))*180/pi))
-         },
-         'Default_Staudenmayer' = {
-           ag_data_raw_wrist$v.ang <- (90*asin(ag_data_raw_wrist[,long_axis_index]/ag_data_raw_wrist$VM))/(pi/2)
-         })
-
-
-  if(window == 'sojourns'){
-    soj_colindex = which(colnames(ag_data_raw_wrist) == soj_colname)
-    seconds_colindex = which(colnames(ag_data_raw_wrist) == seconds_colname)
+  if (window == "sojourns") {
+    soj_colindex <-
+      which(colnames(ag_data_raw_wrist) == soj_colname)
+    seconds_colindex <-
+      which(colnames(ag_data_raw_wrist) == seconds_colname)
 
     # Compute features within sojourns using dplyr
-    ag_data_raw_wrist.sum = ag_data_raw_wrist %>% dplyr::group_by_at(soj_colindex) %>% dplyr::summarize(Timestamp = dplyr::first(Timestamp),
-                                                                                                        sojourn = dplyr::first(.[[soj_colindex]]),
-                                                                                                        seconds = dplyr::first(.[[seconds_colindex]]),
-                                                                                                        perc.soj.inactive = mean(VM_sd_1sec<=inactive_threshold),
-                                                                                                        mean.vm = mean(VM, na.rm = T),
-                                                                                                        sd.vm = sd(VM, na.rm = T),
-                                                                                                        mean.ang = mean(v.ang, na.rm = T),
-                                                                                                        sd.ang = sd(v.ang, na.rm = T),
-                                                                                                        p625 = pow.625(VM),
-                                                                                                        dfreq = dom.freq(VM),
-                                                                                                        ratio.df = frac.pow.dom.freq(VM))
-
+    ag_data_raw_wrist.sum <-
+      ag_data_raw_wrist %>%
+      dplyr::group_by_at(soj_colindex) %>%
+      dplyr::summarize(
+        Timestamp         = dplyr::first(Timestamp),
+        sojourn           = dplyr::first(.[[soj_colindex]]),
+        seconds           = dplyr::first(.[[seconds_colindex]]),
+        perc.soj.inactive = mean(VM_sd_1sec <= inactive_threshold),
+        mean.vm           = mean(VM,
+                                 na.rm = TRUE),
+        sd.vm             = sd(VM,
+                               na.rm = TRUE),
+        mean.ang          = mean(v.ang,
+                                 na.rm = TRUE),
+        sd.ang            = sd(v.ang,
+                               na.rm = TRUE),
+        p625              = pow.625(VM),
+        dfreq             = dom.freq(VM),
+        ratio.df          = frac.pow.dom.freq(VM)
+      )
 
     # Compute features within sojourns using tapply
     # ag_data_raw_wrist.sum <- data.frame(sojourn = tapply(ag_data_raw_wrist[,..soj_colindex], ag_data_raw_wrist[,..soj_colindex], data.table::first),
@@ -72,30 +104,52 @@ ag_feature_calc = function(ag_data_raw_wrist, participant, samp_freq = 80, windo
 
   } else {
 
-    epoch <- ceiling(n/(samp_freq*window))
-    ag_data_raw_wrist$epoch <- rep(1:epoch,each=window*samp_freq)[1:n]
+    epoch <-
+      ceiling(n / (samp_freq * window))
+    ag_data_raw_wrist$epoch <-
+      rep(1:epoch,
+          length.out = n,
+          each       = window * samp_freq)
 
     # Compute features within epochs
-    ag_data_raw_wrist.sum <- ag_data_raw_wrist %>% dplyr::group_by(epoch) %>% dplyr::summarize(Timestamp = dplyr::first(Timestamp),
-                                                                                               mean.vm = mean(VM, na.rm = T),
-                                                                                               sd.vm = sd(VM, na.rm = T),
-                                                                                               mean.ang = mean(v.ang, na.rm = T),
-                                                                                               sd.ang = sd(v.ang, na.rm = T),
-                                                                                               p625 = pow.625(VM),
-                                                                                               p1020 = pow1020(VM),
-                                                                                               dfreq = dom.freq(VM),
-                                                                                               ratio.df = frac.pow.dom.freq(VM))
+    ag_data_raw_wrist.sum <-
+      ag_data_raw_wrist %>%
+      dplyr::group_by(epoch) %>%
+      dplyr::summarize(
+        Timestamp = dplyr::first(Timestamp),
+        mean.vm   = mean(VM,
+                         na.rm = TRUE),
+        sd.vm     = sd(VM,
+                       na.rm = TRUE),
+        mean.ang  = mean(v.ang,
+                         na.rm = TRUE),
+        sd.ang    = sd(v.ang,
+                       na.rm = TRUE),
+        p625      = pow.625(VM),
+        p1020     = pow1020(VM),
+        dfreq     = dom.freq(VM),
+        ratio.df  = frac.pow.dom.freq(VM)
+      )
 
-    if(angle_comp == 'Rowlands'){
-      temp <- ag_data_raw_wrist %>% dplyr::group_by(epoch) %>% dplyr::summarize(Timestamp = dplyr::first(Timestamp),
-                                                                                SedSphere_mean.ang = mean(SedSphere_v.ang, na.rm = T),
-                                                                                SedSphere_sd.ang = sd(SedSphere_v.ang, na.rm = T))
+    if (angle_comp == "Rowlands") {
 
-      ag_data_raw_wrist.sum = dplyr::left_join(ag_data_raw_wrist.sum, temp)
+      temp <-
+        ag_data_raw_wrist %>%
+        dplyr::group_by(epoch) %>%
+        dplyr::summarize(
+          Timestamp          = dplyr::first(Timestamp),
+          SedSphere_mean.ang = mean(SedSphere_v.ang,
+                                    na.rm = TRUE),
+          SedSphere_sd.ang   = sd(SedSphere_v.ang,
+                                  na.rm = TRUE)
+        )
+
+      ag_data_raw_wrist.sum <-
+        dplyr::left_join(ag_data_raw_wrist.sum,
+                         temp)
+
     }
-
   }
 
   return(ag_data_raw_wrist.sum)
-
 }
